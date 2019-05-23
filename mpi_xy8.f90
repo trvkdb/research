@@ -2,7 +2,7 @@
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !
 !     Monte Carlo simulation of site-diluted (2+1)d XY model
-!
+!       TEST
 !     periodic boundary conditions, sequential update of sites
 !     uses KISS05 random number generator
 !     serial + parallel via conditional compilation
