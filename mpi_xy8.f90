@@ -17,7 +17,7 @@
 !     mpi_xy6:     18 June 2015  also measure dm/dT directly
 !     mpi_xy7:     26 Jan  2016  loop over Lt
 !     mpi_xy8:     03 June 2016	 fix missing initialization of conf2xis and conf2xit, stop recalculation of cos and sin
-!
+!                  23 May  2019  change impurity loop (294) to classical physics vs quantum physics.
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Preprocessor directives
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -41,7 +41,7 @@
       integer(i4b),parameter    :: L=32                                ! L=linear system size
       integer(i4b),parameter    :: NLT=1                                ! number of L
       integer(i4b), parameter   :: LTARRAY(NLT)=(/32/) ! system sizes
-      integer(i4b),parameter    :: LTMAX=LTARRAY(NLT), L3MAX=L*L*LTMAX
+      integer(i4b),parameter    :: LTMAX=LTARRAY(NLT), L3MAX=L*L*LTMAX  !L3MAX = 32*32*32 = 32768
       real(r8b),   parameter    :: TMAX=2.5D0, TMIN=1.0D0             ! max and min temperatures
       real(r8b),   parameter    :: DT0=0.05                              ! temp step, must be positive
       integer(i4b), parameter   :: COLDSTART = -1                       ! set to 1 for cold start and to -1 for hot start
@@ -292,25 +292,27 @@
       call kissinit(init)
 
 ! Initialize impurities
-      occu(:)=.true.
-      iimp=0
+      occu(:)=.true. !no impurities
+      iimp=0 !for first loop
       IF (CANON_DIS) THEN
-      do while (iimp.lt.N_IMPSITE)
-         ispace = int(rkiss05()*L*L)
+      do while (iimp.lt.N_IMPSITE) !number of impurities < num_total_impurities
+         ispace = int(rkiss05()*L3MAX)
          if (occu(ispace)) then
-            do itime=0,Lt-1
-               occu(ispace+L*L*itime)=.false.
-!               print *,ispace+L*L*itime
-            enddo
+             occu(ispace) = .false.
+!             do itime=0,Lt-1
+!                occu(ispace+L*L*itime)=.false.
+!                print *,ispace+L*L*itime
+!             enddo
             iimp=iimp+1
          endif
       enddo
       ELSE
-      do ispace=0,L*L-1
+      do ispace=0,L3MAX-1
          if (rkiss05()<IMPCONC) then
-            do itime=0,Lt-1
-               occu(ispace+L*L*itime)=.false.
-            enddo
+            occu(ispace) = .false.
+            ! do itime=0,Lt-1
+            !    occu(ispace+L*L*itime)=.false.
+            ! enddo
             iimp=iimp+1
          endif
       enddo
