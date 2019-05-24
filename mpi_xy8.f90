@@ -175,7 +175,7 @@
 	  enddo
 
 ! Loop over Lt !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-      LT_loop: do iLT=1,NLT
+   LT_loop: do iLT=1,NLT
       Lt = LTARRAY(iLT)
       L3 = L*L*Lt
 
@@ -264,7 +264,7 @@
       confGscon(:) = 0.D0
       confxit(:)   = 0.D0
       confxis(:)   = 0.D0
-	  conf2xit(:)  = 0.D0 ! fix v8
+	   conf2xit(:)  = 0.D0 ! fix v8
       conf2xis(:)  = 0.D0 ! fix v8
       confxitcon(:)= 0.D0
       confxiscon(:)= 0.D0
