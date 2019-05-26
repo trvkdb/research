@@ -1,4 +1,4 @@
-      program mpi_xy8
+program mpi_xy8
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !
 !     Monte Carlo simulation of site-diluted (2+1)d XY model
@@ -29,109 +29,109 @@
 ! Data types
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-      implicit none
-      integer,parameter         :: r8b= SELECTED_REAL_KIND(P=14,R=99)    ! 8-byte reals !precision = 14 decimals, exponent range = 99
-      integer,parameter         :: i4b= SELECTED_INT_KIND(8)             ! 4-byte integers !-10^8 to 10^8
-      integer,parameter         :: ilog=kind(.true.)
+implicit none
+   integer,parameter         :: r8b = SELECTED_REAL_KIND(P=14,R=99)    ! 8-byte reals !precision = 14 decimals, exponent range = 99
+   integer,parameter         :: i4b = SELECTED_INT_KIND(8)             ! 4-byte integers !-10^8 to 10^8
+   integer,parameter         :: ilog = kind(.true.)
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Simulation parameters
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-      integer(i4b),parameter    :: L=32                                ! L=linear system size
-      integer(i4b),parameter    :: NLT=1                                ! number of L
-      integer(i4b), parameter   :: LTARRAY(NLT)=(/32/) ! system sizes
-      integer(i4b),parameter    :: LTMAX=LTARRAY(NLT), L3MAX=L*L*LTMAX  !L3MAX = 32*32*32 = 32768
-      real(r8b),   parameter    :: TMAX=2.5D0, TMIN=1.0D0             ! max and min temperatures
-      real(r8b),   parameter    :: DT0=0.05                              ! temp step, must be positive
-      integer(i4b), parameter   :: COLDSTART = -1                       ! set to 1 for cold start and to -1 for hot start
+   integer(i4b),parameter    :: L = 32                                ! L=linear system size
+   integer(i4b),parameter    :: NLT = 1                                ! number of L
+   integer(i4b), parameter   :: LTARRAY(NLT) = (/32/) ! system sizes
+   integer(i4b),parameter    :: LTMAX=LTARRAY(NLT), L3MAX = L*L*LTMAX  !L3MAX = 32*32*32 = 32768
+   real(r8b),   parameter    :: TMAX = 2.5D0, TMIN = 1.0D0             ! max and min temperatures
+   real(r8b),   parameter    :: DT0 = 0.05                              ! temp step, must be positive
+   integer(i4b), parameter   :: COLDSTART = -1                       ! set to 1 for cold start and to -1 for hot start
 
-      real(r8b),   parameter    :: IMPCONC=0.000000D0
-      integer(i4b),parameter    :: NCONF=100                         ! number of disorder configs
-      logical(ilog), parameter  :: CANON_DIS=.false.
+   real(r8b),   parameter    :: IMPCONC = 0.000000D0
+   integer(i4b),parameter    :: NCONF = 100                         ! number of disorder configs
+   logical(ilog), parameter  :: CANON_DIS = .false.
 
-      integer(i4b),parameter    :: NEQ=100,NMESS=500                    ! Monte Carlo sweeps, must be even
+   integer(i4b),parameter    :: NEQ = 100,NMESS = 500                    ! Monte Carlo sweeps, must be even
 
-      integer(i4b),parameter    :: IRINIT=1                             ! LFSR seed
+   integer(i4b),parameter    :: IRINIT = 1                             ! LFSR seed
 
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Internal constants - do not touch !
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-      real(r8b), parameter      :: pi=3.141592653589793D0
-      integer(i4b),parameter    :: NTEMP= 1+NINT((TMAX-TMIN)/DT0)        ! number of temperatures
-      integer(i4b),parameter    :: TDSIZE=17                            ! size of MPI data transfer array
+   real(r8b), parameter      :: pi = 3.141592653589793D0
+   integer(i4b),parameter    :: NTEMP = 1+NINT((TMAX-TMIN)/DT0)        ! number of temperatures
+   integer(i4b),parameter    :: TDSIZE = 17                            ! size of MPI data transfer array
 
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Variable declarations
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-      real (r8b)      :: sx(0:L3MAX-1),sy(0:L3MAX-1)             ! XY spin
-      logical(ilog)   :: occu(0:L3MAX-1)                      ! occupation of site with spin
-      real (r8b)      :: sxnew, synew, slen
-      real (r8b)      :: nsx,nsy, dE                   ! sum over neighboring spins
+   real (r8b)      :: sx(0:L3MAX-1),sy(0:L3MAX-1)             ! XY spin
+   logical(ilog)   :: occu(0:L3MAX-1)                      ! occupation of site with spin
+   real (r8b)      :: sxnew, synew, slen
+   real (r8b)      :: nsx,nsy, dE                   ! sum over neighboring spins
 
-      real(r8b)       :: mx,my,sweepmag,sweepen                  ! magnetization vector
-      real(r8b)       :: sweepmagqt,sweepmagq2, sweepmagq3,magqt,magqs     ! mag(qtime),mag(qspace),
-      real(r8b)       :: Gt,Gs,Gtcon,Gscon                         ! G(qspace), G(qtime), connected versions
-      real(r8b)       :: mag, mag2, mag4, bin, susc,en, en2,sph     ! magnetization, its square, energy
-      real(r8b)       :: enmag, dmdT                                ! <e m>
-      real(r8b)       :: mag1half,mag2half,en1half,en2half
-      real(r8b)       :: xit,xis,xitcon,xiscon                      ! correlation lengths in space an time, connected versions
-      real(r8b)       :: glxit,glxis,glxitcon,glxiscon              ! global correlation lengths in space an time, connected versions
+   real(r8b)       :: mx,my,sweepmag,sweepen                  ! magnetization vector
+   real(r8b)       :: sweepmagqt,sweepmagq2, sweepmagq3,magqt,magqs     ! mag(qtime),mag(qspace),
+   real(r8b)       :: Gt,Gs,Gtcon,Gscon                         ! G(qspace), G(qtime), connected versions
+   real(r8b)       :: mag, mag2, mag4, bin, susc,en, en2,sph     ! magnetization, its square, energy
+   real(r8b)       :: enmag, dmdT                                ! <e m>
+   real(r8b)       :: mag1half,mag2half,en1half,en2half
+   real(r8b)       :: xit,xis,xitcon,xiscon                      ! correlation lengths in space an time, connected versions
+   real(r8b)       :: glxit,glxis,glxitcon,glxiscon              ! global correlation lengths in space an time, connected versions
 
-      real(r8b)       :: confmag(NTEMP),confmag2(NTEMP)
-      real(r8b)       :: conf2mag(NTEMP), confmag4(NTEMP)              ! configuration averages
-      real(r8b)       :: conflogmag(NTEMP)
-      real(r8b)       :: confsusc(NTEMP), confbin(NTEMP)
-      real(r8b)       :: conf2susc(NTEMP), conf2bin(NTEMP)              ! conf. av. of squared observables
-      real(r8b)       :: confen(NTEMP),confsph(NTEMP)
-      real(r8b)       :: conf2en(NTEMP),conf2sph(NTEMP)
-      real(r8b)       :: confGt(NTEMP),confGs(NTEMP),confGtcon(NTEMP),confGscon(NTEMP)
-      real(r8b)       :: confxit(NTEMP),confxis(NTEMP)
-      real(r8b)       :: conf2xit(NTEMP),conf2xis(NTEMP)
-      real(r8b)       :: confxitcon(NTEMP),confxiscon(NTEMP)
-      real(r8b)       :: confdmdT(NTEMP),conf2dmdT(NTEMP)
-      real(r8b)       :: confdlnmdT(NTEMP),conf2dlnmdT(NTEMP)
+   real(r8b)       :: confmag(NTEMP),confmag2(NTEMP)
+   real(r8b)       :: conf2mag(NTEMP), confmag4(NTEMP)              ! configuration averages
+   real(r8b)       :: conflogmag(NTEMP)
+   real(r8b)       :: confsusc(NTEMP), confbin(NTEMP)
+   real(r8b)       :: conf2susc(NTEMP), conf2bin(NTEMP)              ! conf. av. of squared observables
+   real(r8b)       :: confen(NTEMP),confsph(NTEMP)
+   real(r8b)       :: conf2en(NTEMP),conf2sph(NTEMP)
+   real(r8b)       :: confGt(NTEMP),confGs(NTEMP),confGtcon(NTEMP),confGscon(NTEMP)
+   real(r8b)       :: confxit(NTEMP),confxis(NTEMP)
+   real(r8b)       :: conf2xit(NTEMP),conf2xis(NTEMP)
+   real(r8b)       :: confxitcon(NTEMP),confxiscon(NTEMP)
+   real(r8b)       :: confdmdT(NTEMP),conf2dmdT(NTEMP)
+   real(r8b)       :: confdlnmdT(NTEMP),conf2dlnmdT(NTEMP)
 
-      integer(i4b)    :: m1(0:L3MAX-1)            ! neighbor table
-      integer(i4b)    :: m2(0:L3MAX-1)
-      integer(i4b)    :: m3(0:L3MAX-1)
-      integer(i4b)    :: m4(0:L3MAX-1)
-      integer(i4b)    :: m5(0:L3MAX-1)
-      integer(i4b)    :: m6(0:L3MAX-1)
+   integer(i4b)    :: m1(0:L3MAX-1)            ! neighbor table
+   integer(i4b)    :: m2(0:L3MAX-1)
+   integer(i4b)    :: m3(0:L3MAX-1)
+   integer(i4b)    :: m4(0:L3MAX-1)
+   integer(i4b)    :: m5(0:L3MAX-1)
+   integer(i4b)    :: m6(0:L3MAX-1)
 
-      integer(i4b)    :: Lt, iLT, L3                   ! LT, counter, volume
+   integer(i4b)    :: Lt, iLT, L3                   ! LT, counter, volume
 
-      real(r8b)       :: qspace,qtime          ! minimum q values for correlation length
-	  real(r8b)		  :: cosspace(0:L-1)
-	  real(r8b)		  :: sinspace(0:L-1)
-	  real(r8b)		  :: costime(0:L3MAX-1)
-	  real(r8b)		  :: sintime(0:L3MAX-1)
+   real(r8b)       :: qspace,qtime          ! minimum q values for correlation length
+   real(r8b)       :: cosspace(0:L-1)
+   real(r8b)       :: sinspace(0:L-1)
+   real(r8b)       :: costime(0:L3MAX-1)
+   real(r8b)       :: sintime(0:L3MAX-1)
 
-      integer(i4b)    :: iconf,init            ! current disorder config
-      integer(i4b)    :: totconf               ! total number of confs run so far
-      integer(i4b)    :: N_IMPSITE,iimp        ! number of impurity sites
+   integer(i4b)    :: iconf,init            ! current disorder config
+   integer(i4b)    :: totconf               ! total number of confs run so far
+   integer(i4b)    :: N_IMPSITE,iimp        ! number of impurity sites
 
-      integer(i4b)    :: i1,i2,i3             ! coordinates
-      integer(i4b)    :: is                 ! site index
-      integer(i4b)    :: ispace,itime
+   integer(i4b)    :: i1,i2,i3             ! coordinates
+   integer(i4b)    :: is                 ! site index
+   integer(i4b)    :: ispace !, itime
 
-      integer(i4b)    :: isweep                ! Monte Carlo sweep
-      real(r8b)       :: T, dT, beta               ! Monte Carlo temperature
-      integer(i4b)    :: itemp
+   integer(i4b)    :: isweep                ! Monte Carlo sweep
+   real(r8b)       :: T, dT, beta               ! Monte Carlo temperature
+   integer(i4b)    :: itemp
 
-      integer(i4b)    :: nclsweep,nspsweep        ! number of clusters, spins flipped in single sweep
-      real(r8b)       :: totncl,totnsp            ! total numbers of clusters, spins flipped
-      integer(i4b)    :: ncluster
-      real(r8b)       :: avclsize
+   integer(i4b)    :: nclsweep,nspsweep        ! number of clusters, spins flipped in single sweep
+   real(r8b)       :: totncl,totnsp            ! total numbers of clusters, spins flipped
+   integer(i4b)    :: ncluster
+   real(r8b)       :: avclsize
 
-      real(r8b),external         :: rkiss05
-      external                      kissinit
+   real(r8b),external         :: rkiss05
+   external                      kissinit
 
-      character avenfile*15,avmafile*15,avcofile*15,avdmfile*15
+   character avenfile*15,avmafile*15,avcofile*15,avdmfile*15
 
 ! Now the MPI stuff !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
@@ -168,22 +168,22 @@
       print *,'MC steps: ', NEQ, ' + ', NMESS
 #endif
 
-	  qspace=2*pi/L
-	  do i1=0, L-1
-		cosspace(i1)=cos(qspace*i1) !i1 = x
-		sinspace(i1)=sin(qspace*i1) !i1 = x
-	  enddo
+   qspace=2*pi/L
+   do i1=0, L-1
+      cosspace(i1)=cos(qspace*i1) !i1 = x
+      sinspace(i1)=sin(qspace*i1) !i1 = x
+   enddo
 
 ! Loop over Lt !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-   LT_loop: do iLT=1,NLT
+LT_loop: do iLT=1,NLT
       Lt = LTARRAY(iLT)
       L3 = L*L*Lt
 
-      qtime=2*pi/Lt                 ! minimum q values for correlation length
-	  do i1=0, Lt-1
-		costime(i1)=cos(qtime*i1)
-		sintime(i1)=sin(qtime*i1)
-	  enddo
+   qtime=2*pi/Lt                 ! minimum q values for correlation length
+   do i1=0, Lt-1
+      costime(i1)=cos(qtime*i1)
+      sintime(i1)=sin(qtime*i1)
+   enddo
 
       avenfile='aven0000000.dat'
       avmafile='avma0000000.dat'
@@ -200,49 +200,49 @@
 
 ! Set up neigbor table
 
-    do i1=0, Lt-1
-     do i2=0, L-1
-      do i3=0, L-1
-          is = L*(L*i1 + i2) + i3
+   do i1=0, Lt-1
+      do i2=0, L-1
+         do i3=0, L-1
+            is = L*(L*i1 + i2) + i3
 
-          if (i1.eq.Lt-1) then
-              m1(is)=is - L*L*(Lt-1)
-          else
-              m1(is)=is + L*L
-          endif
+            if (i1.eq.Lt-1) then
+               m1(is)=is - L*L*(Lt-1)
+            else
+               m1(is)=is + L*L
+            endif
 
-          if (i1.eq.0) then
-              m2(is)=is + L*L*(Lt-1)
-          else
-              m2(is)=is - L*L
-          endif
+            if (i1.eq.0) then
+               m2(is)=is + L*L*(Lt-1)
+            else
+               m2(is)=is - L*L
+            endif
 
-          if (i2.eq.L-1) then
-              m3(is)= is - L*(L-1)
-          else
-              m3(is)= is + L
-          endif
+            if (i2.eq.L-1) then
+               m3(is)= is - L*(L-1)
+            else
+               m3(is)= is + L
+            endif
 
-          if (i2.eq.0) then
-              m4(is)=is + L*(L-1)
-          else
-              m4(is)=is - L
-          endif
+            if (i2.eq.0) then
+               m4(is)=is + L*(L-1)
+            else
+               m4(is)=is - L
+            endif
 
-          if (i3.eq.L-1) then
-              m5(is)= is - (L-1)
-          else
-              m5(is)= is + 1
-          endif
+            if (i3.eq.L-1) then
+               m5(is)= is - (L-1)
+            else
+               m5(is)= is + 1
+            endif
 
-          if (i3.eq.0) then
-              m6(is)= is + (L-1)
-          else
-              m6(is)= is - 1
-          endif
+            if (i3.eq.0) then
+               m6(is)= is + (L-1)
+            else
+               m6(is)= is - 1
+            endif
+         enddo
       enddo
-      enddo
-      enddo
+   enddo
 
 
       confmag(:)   = 0.D0
@@ -264,7 +264,7 @@
       confGscon(:) = 0.D0
       confxit(:)   = 0.D0
       confxis(:)   = 0.D0
-	   conf2xit(:)  = 0.D0 ! fix v8
+      conf2xit(:)  = 0.D0 ! fix v8
       conf2xis(:)  = 0.D0 ! fix v8
       confxitcon(:)= 0.D0
       confxiscon(:)= 0.D0
@@ -336,7 +336,7 @@
              sy(is)= rkiss05()-0.5D0
              slen=sqrt(sx(is)*sx(is) + sy(is)*sy(is) )
           enddo
-          slen=1.D0/slen		! changed v8
+          slen=1.D0/slen   ! changed v8
           sx(is)=sx(is)*slen
           sy(is)=sy(is)*slen
         endif
@@ -702,6 +702,7 @@
 #endif
 
       stop
+      
       contains
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -748,7 +749,7 @@
             ny= rkiss05()-0.5D0
             slen= sqrt(nx*nx+ny*ny)
          enddo
-         slen=1.D0/slen		! changed v8
+         slen=1.D0/slen    ! changed v8
          nx= nx*slen
          ny= ny*slen
 
@@ -882,8 +883,6 @@
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !    carries out one Metropolis sweep
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-      real(r8b)    :: angle
-
       do is=0, L3-1
       if (occu(is)) then
           nsx=0.D0
@@ -919,7 +918,7 @@
              synew= rkiss05()-0.5D0
              slen=sqrt(sxnew*sxnew + synew*synew)
           enddo
-          slen=1.D0/slen		! changed v8
+          slen=1.D0/slen   ! changed v8
           sxnew=sxnew*slen
           synew=synew*slen
 
@@ -1000,13 +999,13 @@
       Remq3y=0
       Immq3x=0
       Immq3y=0
-	  is=-1
+      is=-1
       do i1=0, Lt-1
       do i2=0, L-1
       do i3=0, L-1
-		is = L*(L*i1 + i2) + i3 				! changed v8
+      is = L*(L*i1 + i2) + i3    ! changed v8
          if (occu(is)) then
-            Remqtx=Remqtx+sx(is)*costime(i1)	! changed v8
+            Remqtx=Remqtx+sx(is)*costime(i1)    ! changed v8
             Remqty=Remqty+sy(is)*costime(i1)
             Immqtx=Immqtx+sx(is)*sintime(i1)
             Immqty=Immqty+sy(is)*sintime(i1)
