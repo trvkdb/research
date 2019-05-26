@@ -370,7 +370,7 @@ LT_loop: do iLT=1,NLT
          totnsp=totnsp+nspsweep
       enddo
       avclsize=totnsp/totncl
-      ncluster=L3/avclsize+1
+      ncluster=int(L3/avclsize)+1
 
 ! Measuring loop, carry out NMESS full MC sweeps
 
@@ -702,7 +702,7 @@ LT_loop: do iLT=1,NLT
 #endif
 
       stop
-      
+
       contains
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
