@@ -2,7 +2,7 @@ program mpi_xy8
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !
 !     Monte Carlo simulation of site-diluted (2+1)d XY model
-!       TEST
+!       
 !     periodic boundary conditions, sequential update of sites
 !     uses KISS05 random number generator
 !     serial + parallel via conditional compilation
@@ -38,15 +38,26 @@ implicit none
 ! Simulation parameters
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-   integer(i4b),parameter    :: L = 32                                ! L=linear system size
+   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+   integer(i4b),parameter    :: L = 32                                ! L=linear system size - one parameter bc systems are cubic
+   
+   
+
    integer(i4b),parameter    :: NLT = 1                                ! number of L
+   
    integer(i4b), parameter   :: LTARRAY(NLT) = (/32/) ! system sizes
+   
    integer(i4b),parameter    :: LTMAX=LTARRAY(NLT), L3MAX = L*L*LTMAX  !L3MAX = 32*32*32 = 32768
+   
+   real(r8b),   parameter    :: IMPCONC = 0.300000D0
+   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
    real(r8b),   parameter    :: TMAX = 2.5D0, TMIN = 1.0D0             ! max and min temperatures
    real(r8b),   parameter    :: DT0 = 0.05                              ! temp step, must be positive
    integer(i4b), parameter   :: COLDSTART = -1                       ! set to 1 for cold start and to -1 for hot start
+   
 
-   real(r8b),   parameter    :: IMPCONC = 0.000000D0
+   
    integer(i4b),parameter    :: NCONF = 100                         ! number of disorder configs
    logical(ilog), parameter  :: CANON_DIS = .false.
 
@@ -175,7 +186,8 @@ implicit none
    enddo
 
 ! Loop over Lt !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-LT_loop: do iLT=1,NLT
+LT_loop: do iLT=1,NLT !ends around line 700 ish (enddo Lt_loop)
+
       Lt = LTARRAY(iLT)
       L3 = L*L*Lt
 
@@ -198,7 +210,7 @@ LT_loop: do iLT=1,NLT
       write(avcofile(8:11),'(I4.4)') Lt
       write(avdmfile(8:11),'(I4.4)') Lt
 
-! Set up neigbor table
+! Set up neighbor table - don't change 
 
    do i1=0, Lt-1
       do i2=0, L-1
@@ -292,6 +304,7 @@ LT_loop: do iLT=1,NLT
       call kissinit(init)
 
 ! Initialize impurities
+
       occu(:)=.true. !no impurities
       iimp=0 !for first loop
       IF (CANON_DIS) THEN
@@ -319,7 +332,7 @@ LT_loop: do iLT=1,NLT
       ENDIF
 
 
-! Initialize spins
+! Initialize spins !no changes here
       if (COLDSTART==1) then
         do is=0, L3-1
         if (occu(is)) then
@@ -370,7 +383,7 @@ LT_loop: do iLT=1,NLT
          totnsp=totnsp+nspsweep
       enddo
       avclsize=totnsp/totncl
-      ncluster=int(L3/avclsize)+1
+      ncluster= L3/avclsize +1
 
 ! Measuring loop, carry out NMESS full MC sweeps
 
