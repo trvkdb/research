@@ -23,7 +23,7 @@ program mpi_xy8
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     
     !#define PARALLEL
-    #define VERSION 'mpi_xy8'
+    #define VERSION 'mpi_xy8_rework'
     
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     ! Data types

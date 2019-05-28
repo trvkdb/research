@@ -39,7 +39,7 @@ implicit none
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-   integer(i4b),parameter    :: L = 32                                ! L=linear system size - one parameter bc systems are cubic
+   !integer(i4b),parameter    :: L = 32                                ! L=linear system size - one parameter bc systems are cubic
    
    
 
@@ -47,9 +47,11 @@ implicit none
    
    integer(i4b), parameter   :: LTARRAY(NLT) = (/32/) ! system sizes
    
-   integer(i4b),parameter    :: LTMAX=LTARRAY(NLT), L3MAX = L*L*LTMAX  !L3MAX = 32*32*32 = 32768
+   integer(i4b), parameter   :: L = LTARRAY(NLT)
+
+   integer(i4b),parameter    :: L3MAX = L*L*L  !L3MAX = 32*32*32 = 32768
    
-   real(r8b),   parameter    :: IMPCONC = 0.300000D0
+   real(r8b),   parameter    :: IMPCONC = 0.000000D0
    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
    real(r8b),   parameter    :: TMAX = 2.5D0, TMIN = 1.0D0             ! max and min temperatures
@@ -114,7 +116,7 @@ implicit none
    integer(i4b)    :: m5(0:L3MAX-1)
    integer(i4b)    :: m6(0:L3MAX-1)
 
-   integer(i4b)    :: Lt, iLT, L3                   ! LT, counter, volume
+   integer(i4b)    :: L_loop, iLT, L3                   ! LT, counter, volume
 
    real(r8b)       :: qspace,qtime          ! minimum q values for correlation length
    real(r8b)       :: cosspace(0:L-1)
@@ -188,11 +190,11 @@ implicit none
 ! Loop over Lt !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 LT_loop: do iLT=1,NLT !ends around line 700 ish (enddo Lt_loop)
 
-      Lt = LTARRAY(iLT)
-      L3 = L*L*Lt
+      L_loop = LTARRAY(iLT)
+      L3 = L_loop*L_loop*L_loop
 
-   qtime=2*pi/Lt                 ! minimum q values for correlation length
-   do i1=0, Lt-1
+   qtime=2*pi/L_loop                 ! minimum q values for correlation length
+   do i1=0, L_loop-1
       costime(i1)=cos(qtime*i1)
       sintime(i1)=sin(qtime*i1)
    enddo
@@ -205,26 +207,26 @@ LT_loop: do iLT=1,NLT !ends around line 700 ish (enddo Lt_loop)
       write(avmafile(5:7),'(I3.3)') L
       write(avcofile(5:7),'(I3.3)') L
       write(avdmfile(5:7),'(I3.3)') L
-      write(avenfile(8:11),'(I4.4)') Lt
-      write(avmafile(8:11),'(I4.4)') Lt
-      write(avcofile(8:11),'(I4.4)') Lt
-      write(avdmfile(8:11),'(I4.4)') Lt
+      write(avenfile(8:11),'(I4.4)') L_loop
+      write(avmafile(8:11),'(I4.4)') L_loop
+      write(avcofile(8:11),'(I4.4)') L_loop
+      write(avdmfile(8:11),'(I4.4)') L_loop
 
 ! Set up neighbor table - don't change 
 
-   do i1=0, Lt-1
+   do i1=0, L_loop-1
       do i2=0, L-1
          do i3=0, L-1
             is = L*(L*i1 + i2) + i3
 
-            if (i1.eq.Lt-1) then
-               m1(is)=is - L*L*(Lt-1)
+            if (i1.eq.L_loop-1) then
+               m1(is)=is - L*L*(L_loop-1)
             else
                m1(is)=is + L*L
             endif
 
             if (i1.eq.0) then
-               m2(is)=is + L*L*(Lt-1)
+               m2(is)=is + L*L*(L_loop-1)
             else
                m2(is)=is - L*L
             endif
@@ -571,7 +573,7 @@ LT_loop: do iLT=1,NLT !ends around line 700 ish (enddo Lt_loop)
       open(7,file=avenfile,status='replace')
       rewind(7)
       write(7,*) 'program ', VERSION
-      write(7,*) 'spatial + temporal system size', L, Lt
+      write(7,*) 'spatial + temporal system size', L, L_loop
       write(7,*) 'equilibration steps     ',  NEQ
       write(7,*) 'measurement steps   ', NMESS
       write(7,*) 'impurity conc.  ', real(impconc),',  number of imps. ',N_IMPSITE
@@ -600,7 +602,7 @@ LT_loop: do iLT=1,NLT !ends around line 700 ish (enddo Lt_loop)
       open(7,file=avmafile,status='replace')
       rewind(7)
       write(7,*) 'program ', VERSION
-      write(7,*) 'spatial + temporal system size', L, Lt
+      write(7,*) 'spatial + temporal system size', L, L_loop
       write(7,*) 'equilibration steps     ',  NEQ
       write(7,*) 'measurement steps   ', NMESS
       write(7,*) 'impurity conc.  ', real(impconc),',  number of imps. ',N_IMPSITE
@@ -631,7 +633,7 @@ LT_loop: do iLT=1,NLT !ends around line 700 ish (enddo Lt_loop)
       open(7,file=avcofile,status='replace')
       rewind(7)
       write(7,*) 'program ', VERSION
-      write(7,*) 'spatial + temporal system size', L, Lt
+      write(7,*) 'spatial + temporal system size', L, L_loop
       write(7,*) 'equilibration steps     ',  NEQ
       write(7,*) 'measurement steps   ', NMESS
       write(7,*) 'impurity conc.  ', real(impconc),',  number of imps. ',N_IMPSITE
@@ -641,8 +643,8 @@ LT_loop: do iLT=1,NLT !ends around line 700 ish (enddo Lt_loop)
       write(7,*) 'COLDSTART ',COLDSTART
       write(7,*) 'LFSR-Init        ', IRINIT
       write(7,*) '-----------------'
-      write(7,*) ' T  [xit]  [xis] [xit]/Lt  [xis]/L [xitcon]  [xiscon] [xitcon]/Lt  [xiscon]/L', &
-				' glxit glxis  glxit/Lt glxis/L glxitcon glxiscon glxitcon/Lt glxiscon/L',&
+      write(7,*) ' T  [xit]  [xis] [xit]/L  [xis]/L [xitcon]  [xiscon] [xitcon]/L  [xiscon]/L', &
+				' glxit glxis  glxit/Lt glxis/L glxitcon glxiscon glxitcon/L glxiscon/L',&
 				' std.dev.(xit/Lt)  std.dev.(xis/L)'
       if (COLDSTART==1) then
          T=TMIN
@@ -662,10 +664,10 @@ LT_loop: do iLT=1,NLT !ends around line 700 ish (enddo Lt_loop)
          glxiscon=sqrt(abs(glxiscon))
 
          write(7,'(1x,25(e13.7,1x))') t,confxit(itemp)/totconf, confxis(itemp)/totconf,&
-              confxit(itemp)/totconf/Lt, confxis(itemp)/totconf/L,&
-              confxitcon(itemp)/totconf,confxiscon(itemp)/totconf,confxitcon(itemp)/totconf/Lt,confxiscon(itemp)/totconf/L,&
-              glxit,glxis,glxit/Lt,glxis/L,glxitcon,glxiscon,glxitcon/Lt,glxiscon/L,&
-              (sqrt(conf2xit(itemp)/totconf-(confxit(itemp)/totconf)**2))/sqrt(1.D0*totconf)/Lt,&
+              confxit(itemp)/totconf/L_loop, confxis(itemp)/totconf/L,&
+              confxitcon(itemp)/totconf,confxiscon(itemp)/totconf,confxitcon(itemp)/totconf/L_loop,confxiscon(itemp)/totconf/L,&
+              glxit,glxis,glxit/L_loop,glxis/L,glxitcon,glxiscon,glxitcon/L_loop,glxiscon/L,&
+              (sqrt(conf2xit(itemp)/totconf-(confxit(itemp)/totconf)**2))/sqrt(1.D0*totconf)/L_loop,&
               (sqrt(conf2xis(itemp)/totconf-(confxis(itemp)/totconf)**2))/sqrt(1.D0*totconf)/L
          T=T+DT
       enddo
@@ -673,7 +675,7 @@ LT_loop: do iLT=1,NLT !ends around line 700 ish (enddo Lt_loop)
       open(7,file=avdmfile,status='replace')
       rewind(7)
       write(7,*) 'program ', VERSION
-      write(7,*) 'spatial + temporal system size', L, Lt
+      write(7,*) 'spatial + temporal system size', L, L_loop
       write(7,*) 'equilibration steps     ',  NEQ
       write(7,*) 'measurement steps   ', NMESS
       write(7,*) 'impurity conc.  ', real(impconc),',  number of imps. ',N_IMPSITE
@@ -1013,7 +1015,7 @@ LT_loop: do iLT=1,NLT !ends around line 700 ish (enddo Lt_loop)
       Immq3x=0
       Immq3y=0
       is=-1
-      do i1=0, Lt-1
+      do i1=0, L_loop-1
       do i2=0, L-1
       do i3=0, L-1
       is = L*(L*i1 + i2) + i3    ! changed v8
