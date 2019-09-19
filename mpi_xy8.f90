@@ -29,11 +29,11 @@ program mpi_xy8
    ! Data types
    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
    
-   implicit none
+      implicit none
       integer,parameter         :: r8b = SELECTED_REAL_KIND(P=14,R=99)    ! 8-byte reals !precision = 14 decimals, exponent range = 99
       integer,parameter         :: i4b = SELECTED_INT_KIND(8)             ! 4-byte integers !-10^8 to 10^8
       integer,parameter         :: ilog = kind(.true.)
-   
+      	 
    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
    ! Simulation parameters
    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -68,6 +68,8 @@ program mpi_xy8
    
       integer(i4b),parameter    :: NEQ = 100,NMESS = 500                    ! Monte Carlo sweeps, must be even
    
+      logical(ilog), parameter  :: AMPLITUDEMODE=.true. !true if amplitude mode, false else
+
       integer(i4b),parameter    :: IRINIT = 1                             ! LFSR seed
    
    
@@ -101,6 +103,13 @@ program mpi_xy8
       real(r8b)       :: xit,xis,xitcon,xiscon                      ! correlation lengths in space an time, connected versions
       real(r8b)       :: glxit,glxis,glxitcon,glxiscon              ! global correlation lengths in space an time, connected versions
    
+      real(r8b)       :: rhoav                                      ! average amplitude
+      real(r8b)       :: rhoav1half, rhoav2half 
+      real(r8b), allocatable, dimension(:)       :: rhotconv	!(0 to LTMAX-1)                    ! <rhot rhot>
+	   real(r8b), allocatable, dimension(:)       :: chirho  !(0 to LTMAX-1)                 ! \chi_{rhorho}
+	   real(r8b), allocatable, dimension(:)       :: chirhomat  !(0 to LTMAX-1)   !fft of chirho                  ! Fourier transform of \chi_{rhorho}
+      real(r8b), allocatable, dimension(:)       :: ggg       !(0 to 2*LTMAX-1)                    ! aux array for FFT 
+
       real(r8b)       :: confmag(NTEMP),confmag2(NTEMP)
       real(r8b)       :: conf2mag(NTEMP), confmag4(NTEMP)              ! configuration averages
       real(r8b)       :: conflogmag(NTEMP)
@@ -115,8 +124,17 @@ program mpi_xy8
       real(r8b)       :: confdmdT(NTEMP),conf2dmdT(NTEMP)
       real(r8b)       :: confdlnmdT(NTEMP),conf2dlnmdT(NTEMP)
    
+
+      real(r8b)       :: confrhoav(NTEMP)                              ! amplitude
+	  real(r8b)       :: conf2rhoav(NTEMP)
+      real(r8b), allocatable, dimension(:, :)       :: confchirho !(NTEMP, 0:LTMAX-1)                 ! rho rho susceptibility 
+      real(r8b), allocatable, dimension(:, :)       :: conf2chirho !(NTEMP, 0:LTMAX-1)
+      real(r8b), allocatable, dimension(:, :)       :: confchirhomat !(NTEMP, 0:LTMAX-1)          ! Fourier transform of rho rho susceptibility 
+      real(r8b), allocatable, dimension(:, :)       :: conf2chirhomat !(NTEMP, 0:LTMAX-1)
+      real(r8b), allocatable, dimension(:, :, :)     :: confcovari !(NTEMP, 0:LTMAX-1,0:LTMAX-1)        ! covariance of chirhomat
+
       ! integer(i4b)    :: m1(0:L3MAX-1)            ! neighbor table
-      ! integer(i4b)    :: m2(0:L3MAX-1)                         !all these will need to be made allocatable
+      ! integer(i4b)    :: m2(0:L3MAX-1)            !all these will need to be made allocatable
       ! integer(i4b)    :: m3(0:L3MAX-1)
       ! integer(i4b)    :: m4(0:L3MAX-1)
       ! integer(i4b)    :: m5(0:L3MAX-1)
@@ -128,7 +146,7 @@ program mpi_xy8
       integer(i4b), allocatable, dimension(:) :: m5
       integer(i4b), allocatable, dimension(:) :: m6
       
-      integer(i4b)    :: L_loop, iLT, L3                   ! LT, counter, volume
+      integer(i4b)    :: L_loop, ldLt iLT, L3                   ! LT, counter, volume
    
       real(r8b)       :: qspace,qtime          ! minimum q values for correlation length
       ! real(r8b)       :: cosspace(0:L-1)      !also allocatable
@@ -160,7 +178,7 @@ program mpi_xy8
       real(r8b),external         :: rkiss05
       external                      kissinit
    
-      character avenfile*15,avmafile*15,avcofile*15,avdmfile*15
+      character avenfile*15,avmafile*15,avcofile*15,avdmfile*15,avamfile*20,avcovfile*21
    
    ! Now the MPI stuff !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
    
@@ -171,19 +189,26 @@ program mpi_xy8
          integer(i4b)              :: numprocs              ! total number of processes
          integer(i4b)              :: status(MPI_STATUS_SIZE)
          real(r8b)                 :: transdata(TDSIZE),auxdata(TDSIZE)     ! MPI transfer array
+   
+         real(r8b),allocatable, dimension(:)                :: amauxdata
    #endif
    
    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
    ! Start of main program
    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-   
+#ifdef PARALLEL
+   call MPI_INIT(ierr)
+   call MPI_COMM_RANK( MPI_COMM_WORLD, myid, ierr )
+   call MPI_COMM_SIZE( MPI_COMM_WORLD, numprocs, ierr )   
    
    ! Set up MPI !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-   LT_loop: do iLT = 1, NLT
+LT_loop: do iLT = 1, NLT
          
          L_loop = LTARRAY(iLT)
          L3 = L_loop*L_loop*L_loop
-   
+   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+   ! allocate neighbor tables/spin arrays
+   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
          allocate(sx(0:L3-1))
          allocate(sy(0:L3-1))
          allocate(occu(0:L3-1))
@@ -199,31 +224,39 @@ program mpi_xy8
          allocate(sinspace(0:L_loop-1))
          allocate(costime(0:L3-1))
          allocate(sintime(0:L3-1))
-         
+   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+   ! allocate amplitude mode stuff 
+   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!  
+         allocate(rhotconv(0:L_loop-1))
+         allocate(chirho(0:L_loop-1))
+         allocate(chirhomat(0:L_loop-1))
+         allocate(ggg(0:2*L_loop-1))
+
+         allocate(confchirho(NTEMP, 0:L_loop-1))
+         allocate(conf2chirho(NTEMP, 0:L_loop-1))
+         allocate(confchirhomat(NTEMP, 0:L_loop-1))
+         allocate(conf2chirhomat(NTEMP, 0:L_loop-1))
+         allocate(confcovari(NTEMP, 0:L_loop-1, 0:L_loop-1))
    
-   #ifdef PARALLEL
-         call MPI_INIT(ierr)
-         call MPI_COMM_RANK( MPI_COMM_WORLD, myid, ierr )
-         call MPI_COMM_SIZE( MPI_COMM_WORLD, numprocs, ierr )
    
-         if (myid==0) then
-            print *,'Program ',VERSION,' running on', numprocs, ' processes'
-            print *,'--------------------------------------------------'
-            print *,'L= ', L_loop
-            print *,'MC steps: ', NEQ, ' + ', NMESS
-         endif ! of if (myid==0)
-   #else
-         print *,'Program ',VERSION,' running on single processor'
-         print *,'--------------------------------------------------'
-         print *,'L= ', L_loop
-         print *,'MC steps: ', NEQ, ' + ', NMESS
-   #endif
+   if (myid==0) then
+      print *,'Program ',VERSION,' running on', numprocs, ' processes'
+      print *,'--------------------------------------------------'
+      print *,'L= ', L_loop
+      print *,'MC steps: ', NEQ, ' + ', NMESS
+   endif ! of if (myid==0)
+#else
+   print *,'Program ',VERSION,' running on single processor'
+   print *,'--------------------------------------------------'
+   print *,'L= ', L_loop
+   print *,'MC steps: ', NEQ, ' + ', NMESS
+#endif
    
-      qspace=2*pi/L_loop
-      do i1=0, L_loop-1
-         cosspace(i1)=cos(qspace*i1) !i1 = x
-         sinspace(i1)=sin(qspace*i1) !i1 = x
-      enddo
+   qspace=2*pi/L_loop
+   do i1=0, L_loop-1
+      cosspace(i1)=cos(qspace*i1) !i1 = x
+      sinspace(i1)=sin(qspace*i1) !i1 = x
+   enddo
    
    ! Loop over Lt !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
    !LT_loop: do iLT=1,NLT !ends around line 700 ish (enddo Lt_loop)
@@ -240,15 +273,21 @@ program mpi_xy8
          avmafile='avma0000000.dat'
          avcofile='avco0000000.dat'
          avdmfile='avdm0000000.dat'
+         avamfile='avam0000000T0000.dat'
+         avcovfile='avcov0000000T0000.dat'
          write(avenfile(5:7),'(I3.3)') L_loop
          write(avmafile(5:7),'(I3.3)') L_loop
          write(avcofile(5:7),'(I3.3)') L_loop
          write(avdmfile(5:7),'(I3.3)') L_loop
+         write(avamfile(5:7),'(I3.3)') L_loop
+         write(avcovfile(6:8),'(I3.3)') L_loop
          write(avenfile(8:11),'(I4.4)') L_loop
          write(avmafile(8:11),'(I4.4)') L_loop
          write(avcofile(8:11),'(I4.4)') L_loop
          write(avdmfile(8:11),'(I4.4)') L_loop
-   
+         write(avamfile(8:11),'(I4.4)') L_loop
+         write(avcovfile(9:12),'(I4.4)') L_loop
+
    ! Set up neighbor table - don't change 
    
       do i1=0, L_loop-1
@@ -323,7 +362,14 @@ program mpi_xy8
          conf2dmdT(:) = 0.D0
          confdlnmdT(:)= 0.D0
          conf2dlnmdT(:)=0.D0
-   
+
+         confrhoav(:)  =0.D0
+	      conf2rhoav(:) =0.D0
+         confchirho(:,:)=0.D0
+         conf2chirho(:,:)=0.D0
+         confchirhomat(:,:)=0.D0
+         conf2chirhomat(:,:)=0.D0
+         confcovari(:,:,:)=0.D0
    
    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
    !  Loop over disorder configurations
@@ -436,9 +482,13 @@ program mpi_xy8
          Gt=  0.D0
          Gs=  0.D0
          enmag=0.D0
-   
+         
+         rhoav=0.D0
+         rhotconf(:) = 0.D0
+
          totncl=0.D0
          totnsp=0.D0
+         
          do isweep=1, NMESS/2
             call metro_sweep
             call wolff_sweep(ncluster,nclsweep,nspsweep)
@@ -447,10 +497,11 @@ program mpi_xy8
    
             call measurement
             call corr_func
+            if(AMPLITUDEMODE) call amplitude_mode
          enddo     ! of do isweep ...
          mag1half=mag
          en1half=en
-   
+         rhoav1half = rhoav
          call metro_sweep                                    ! separate the two halfs
          call wolff_sweep(ncluster,nclsweep,nspsweep)
    
@@ -462,9 +513,11 @@ program mpi_xy8
    
             call measurement
             call corr_func
+            if(AMPLITUDEMODE) call amplitude_mode
          enddo     ! of do isweep ...
          mag2half=mag-mag1half
          en2half=en-en1half
+         rhoav2half=rhoav-rhoav1half
          avclsize=totnsp/totncl
    
    
@@ -500,7 +553,22 @@ program mpi_xy8
          xitcon=sqrt(abs(xitcon))
          xiscon= ((mag2 - mag**2) - Gscon)/ (Gscon*qspace*qspace)
          xiscon=sqrt(abs(xiscon))
-   
+         
+         if(AMPLITUDEMODE) then
+            rhoav=rhoav/NMESS
+            rhoav1half=2.D0*rhoav1half/NMESS
+            rhoav2half=2.D0*rhoav2half/NMESS
+            rhotconv(0:L_loop-1)=rhotconv(0:L_loop-1)/NMESS
+            chirho(0:L_loop-1)=(rhotconv(0:L_loop-1) - rhoav1half*rhoav2half)*L_loop*L_loop*beta
+            !FFT to Matsubara frequencies
+            ! do  i1=0, L_loop-1
+            !    ggg(2*i1)=chirho(i1)
+            !    ggg(2*i1+1)=0.D0
+            ! enddo
+            ! call fft(ggg, L_loop, L_loop, ldLt,1)
+            ! do i1=0, L_loop-1
+            !    chirhomat(i1)=ggg(2*i1)
+            ! enddo
    
    #ifdef PARALLEL
    !! Package data for transmission
@@ -521,7 +589,7 @@ program mpi_xy8
          transdata(15)=xitcon
          transdata(16)=xiscon
          transdata(17)=dmdT
-   
+         transdata(18)=rhoav
    
          if(myid.ne.0) then                                                  ! Send data
             call MPI_SEND(transdata,TDSIZE,MPI_DOUBLE_PRECISION,0,myid,MPI_COMM_WORLD,ierr)
@@ -559,6 +627,8 @@ program mpi_xy8
                conf2dmdT(itemp)=conf2dmdT(itemp)   +(auxdata(17))**2
                confdlnmdT(itemp)=confdlnmdT(itemp) +auxdata(17)/auxdata(1)
                conf2dlnmdT(itemp)=conf2dlnmdT(itemp)+(auxdata(17)/auxdata(1))**2
+               confrhoav(itemp)=confrhoav(itemp)    +auxdata(18)
+               conf2rhoav(itemp)=conf2rhoav(itemp)  +(auxdata(18))**2
    
             enddo
          endif
@@ -591,9 +661,61 @@ program mpi_xy8
          conf2dmdT(itemp)=conf2dmdT(itemp)   +dmdT**2
          confdlnmdT(itemp)=confdlnmdT(itemp) +dmdT/mag
          conf2dlnmdT(itemp)=conf2dlnmdT(itemp)+(dmdT/mag)**2
+         confrhoav(itemp)=confrhoav(itemp)    +rhoav
+         conf2rhoav(itemp)=conf2rhoav(itemp)  +rhoav**2
+ 
    
    #endif
-   
+
+   #ifdef PARALLEL
+      if(myid.ne.0) then                                                  ! Send rho rho susceptibility
+         call MPI_SEND(chirho,LTMAX,MPI_DOUBLE_PRECISION,0,2,MPI_COMM_WORLD,ierr)
+      else                                                                 ! Receive 
+         do id=0,numprocs-1
+            if (id==0) then
+               amauxdata(:)=chirho(:)
+		    else
+               call MPI_RECV(amauxdata,LTMAX,MPI_DOUBLE_PRECISION,id,2,MPI_COMM_WORLD,status,ierr)
+            endif
+            confchirho(itemp,:)=confchirho(itemp,:)+amauxdata(:)
+            conf2chirho(itemp,:)=conf2chirho(itemp,:)+amauxdata(:)**2
+         enddo
+      endif   
+#else
+	  confchirho(itemp,:)=confchirho(itemp,:)+chirho(:)
+	  conf2chirho(itemp,:)=conf2chirho(itemp,:)+chirho(:)**2
+#endif
+
+
+#ifdef PARALLEL
+      if(myid.ne.0) then                                                  ! Send Fourier transformed rho rho susceptibility
+         call MPI_SEND(chirhomat,LTMAX,MPI_DOUBLE_PRECISION,0,3,MPI_COMM_WORLD,ierr)
+      else                                                                 ! Receive 
+         do id=0,numprocs-1
+            if (id==0) then
+               amauxdata(:)=chirhomat(:)
+		    else
+               call MPI_RECV(amauxdata,LTMAX,MPI_DOUBLE_PRECISION,id,3,MPI_COMM_WORLD,status,ierr)
+            endif
+            confchirhomat(itemp,:)=confchirhomat(itemp,:)+amauxdata(:)
+            conf2chirhomat(itemp,:)=conf2chirhomat(itemp,:)+amauxdata(:)**2
+            do i1=0,Lt-1
+            do i2=0,Lt-1
+               confcovari(itemp,i1,i2)=confcovari(itemp,i1,i2) + amauxdata(i1)*amauxdata(i2)
+            enddo               
+            enddo 
+         enddo
+      endif   
+#else
+	  confchirhomat(itemp,:)=confchirhomat(itemp,:)+chirhomat(:)
+	  conf2chirhomat(itemp,:)=conf2chirhomat(itemp,:)+chirhomat(:)**2
+      do i1=0,Lt-1
+      do i2=0,Lt-1
+         confcovari(itemp,i1,i2)=confcovari(itemp,i1,i2) + chirhomat(i1)*chirhomat(i2)
+      enddo               
+      enddo 
+#endif
+
          T=T+dT
          enddo temperature
    
@@ -740,14 +862,75 @@ program mpi_xy8
            T=T+dT
          enddo
          close(7)
-   
+   ! Write rho rho correlatioon function, one file per temp 
+      if (AMPLITUDEMODE) then    
+         if (COLDSTART==1) then
+           T=TMIN
+           dT=DT0
+         else 
+           T=TMAX
+           dT=-DT0
+         endif       
+         do itemp=1,NTEMP
+           write(avamfile(13:16),'(I4.4)') nint(1000*T)
+           open(7,file=avamfile,status='replace')
+           rewind(7) 
+           write(7,*) 'program ', VERSION
+           write(7,*) 'spatial + temporal system size', L, Lt
+           write(7,*) 'equilibration steps     ',  NEQ
+           write(7,*) 'measurement steps   ', NMESS
+           write(7,*) 'impurity conc.  ', real(impconc),',  number of imps. ',N_IMPSITE
+           write(7,*) 'disorder configurations ', NCONF 
+           write(7,*) 'disorder configurations processed ',totconf,' of  ',NCONF
+           write(7,*) 'CANON_DIS ',CANON_DIS
+           write(7,*) 'COLDSTART ',COLDSTART
+           write(7,*) 'LFSR-Init        ', IRINIT
+           write(7,*) 'temperature ', T
+           write(7,*) '-----------------'
+           write(7,*) '  it    omega   chirhorho(omega_n)    std.dev.     chirhorho(tau)  std.dev.'
+           do i1=0,Lt-1
+              write(7,'(i5,1x,25(e13.7,1x))') i1, (6.28318530717959d0/Lt)*i1, confchirhomat(itemp,i1)/totconf, &
+     &                  (sqrt(conf2chirhomat(itemp,i1)/totconf-(confchirhomat(itemp,i1)/totconf)**2))/sqrt(1.D0*totconf),&
+     &                  confchirho(itemp,i1)/totconf, & 
+     &                  (sqrt(conf2chirho(itemp,i1)/totconf-(confchirho(itemp,i1)/totconf)**2))/sqrt(1.D0*totconf)
+           enddo
+           close(7)
+
+           write(avcovfile(14:17),'(I4.4)') nint(1000*T)
+           open(7,file=avcovfile,status='replace')
+           rewind(7) 
+           write(7,*) 'program ', VERSION
+           write(7,*) 'spatial + temporal system size', L, Lt
+           write(7,*) 'equilibration steps     ',  NEQ
+           write(7,*) 'measurement steps   ', NMESS
+           write(7,*) 'impurity conc.  ', real(impconc),',  number of imps. ',N_IMPSITE
+           write(7,*) 'disorder configurations ', NCONF 
+           write(7,*) 'disorder configurations processed ',totconf,' of  ',NCONF
+           write(7,*) 'CANON_DIS ',CANON_DIS
+           write(7,*) 'COLDSTART ',COLDSTART
+           write(7,*) 'LFSR-Init        ', IRINIT
+           write(7,*) 'temperature ', T
+           write(7,*) '-----------------'
+           write(7,*) '  it   jt     covarince(it,jt)'
+           do i1=0,Lt/2-1
+           do i2=0,Lt/2-1
+              write(7,'(i5,1x,i5,1x,5(e13.7,1x))') i1, i2, (confcovari(itemp,i1,i2)/totconf&
+     &               -(confchirhomat(itemp,i1)/totconf)*(confchirhomat(itemp,i2)/totconf))/(1.D0*totconf)
+           enddo
+           enddo
+           close(7)
+
+           T=T+dT
+        enddo
+      endif                  ! of if AMPLITUDEMODE 
+
    #ifdef PARALLEL
          endif ! of if (myid==0)
    #endif
    
          enddo disorder_loop
          deallocate(sx)
-         deallocate(sx)
+         deallocate(sy)
          deallocate(occu)
    
          deallocate(m1)
@@ -761,18 +944,32 @@ program mpi_xy8
          deallocate(sinspace)
          deallocate(costime)
          deallocate(sintime)
-      enddo LT_loop
+         
+         deallocate(rhotconv(0:L_loop-1))
+         deallocate(chirho(0:L_loop-1))
+         deallocate(chirhomat(0:L_loop-1))
+         deallocate(ggg(0:2*L_loop-1))
+
+         deallocate(confchirho)
+         deallocate(conf2chirho)
+         deallocate(confchirhomat)
+         deallocate(conf2chirhomat)
+         deallocate(confcovari)
+
+enddo LT_loop
    
    #ifdef PARALLEL
          call MPI_FINALIZE(ierr)
    #endif
    
-         stop
+      stop
    
-         contains
+      contains
+
+   
    
    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-         subroutine Wolff_sweep(ntobeflipped,nclflipped,nspflipped)
+    subroutine Wolff_sweep(ntobeflipped,nclflipped,nspflipped)
    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
    !     Performs a Wolff sweep consisting of ncluster single cluster flips
    !
@@ -945,7 +1142,7 @@ program mpi_xy8
          end subroutine wolff_sweep
    
    
-        subroutine metro_sweep
+   subroutine metro_sweep
    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
    !    carries out one Metropolis sweep
    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -1102,8 +1299,96 @@ program mpi_xy8
          Gs=Gs+0.5*(sweepmagq2**2+sweepmagq3**2)
    
          end subroutine corr_func
-   
-         end
+         ubroutine amplitude_mode
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! amplitude mode measurements
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! create amplitudes
+	  integer(i4b)    :: nn
+      real(r8b)       :: rho(0:L3MAX-1)							    ! amplitude - coarse grained spins
+      real(r8b)       :: rhot(0:Lt-1)                               ! amplitude averaged over space-like planes 
+      real(r8b)       :: sweeprhoav
+      real(r8b)       :: sweeprhotconv(0:Lt-1)                      ! < rhot rhot >
+
+! Calculate rho by averaging over s of a site and its space neighbors m3 m4, m5 and m6.  
+! (do NOT include time neighbors, this messes up short time correlations) 
+      do is=0, L3-1                       
+      nn=0
+      mx=0.D0
+      my=0.D0
+	      if (occu(is)) then 
+             mx=mx+sx(is)
+             my=my+sy(is)
+			 nn=nn+1
+          endif
+          if (occu(m1(is))) then
+            mx = mx+sx(is)
+            my = my+sy(is)
+          nn = nn+1
+          endif
+          if (occu(m2(is))) then
+            mx = mx+sx(is)
+            my = my+sy(is)
+          nn = nn+1 
+          endif
+          if (occu(m3(is))) then 
+             mx=mx+sx(m3(is))
+             my=my+sy(m3(is))
+			 nn=nn+1
+          endif
+          if (occu(m4(is))) then 
+             mx=mx+sx(m4(is))
+             my=my+sy(m4(is))
+			 nn=nn+1
+          endif
+          if (occu(m5(is))) then 
+             mx=mx+sx(m5(is))
+             my=my+sy(m5(is))
+			 nn=nn+1
+          endif
+          if (occu(m6(is))) then 
+             mx=mx+sx(m6(is))
+             my=my+sy(m6(is))
+			 nn=nn+1
+          endif
+      if(nn>0) then 
+        rho(is)=sqrt(mx**2+my**2)/nn 
+        else 
+        rho(is)=0.D0
+      endif
+      enddo     ! of do is ...
+
+
+! build spatial mean amplitudes (q=0 Fourier component)
+      sweeprhoav=0.D0
+      do i1=0, Lt-1
+        rhot(i1)=0.D0
+        do i2=0, L-1
+        do i3=0, L-1
+           is = L*(L*i1 + i2) + i3
+           rhot(i1)=rhot(i1)+rho(is)
+        enddo
+        enddo
+	    rhot(i1)=rhot(i1)/(L*L)
+        sweeprhoav=sweeprhoav+rhot(i1)
+	  enddo
+      sweeprhoav=sweeprhoav/Lt
+      
+!convolution
+      sweeprhotconv(:)=0.D0
+      do i1=0, Lt-1	  
+      do i2=0, Lt-1
+			i3=modulo(i1-i2,Lt)
+            sweeprhotconv(i3)=sweeprhotconv(i3)+rhot(i1)*rhot(i2)
+      enddo
+      enddo
+      sweeprhotconv(:)=sweeprhotconv(:)/Lt
+       
+      rhoav=rhoav+sweeprhoav
+	  rhotconv(:) =rhotconv(:) + sweeprhotconv(:)
+
+	  end subroutine amplitude_mode
+         
    
    
    
@@ -1227,4 +1512,71 @@ program mpi_xy8
    
          return
          end subroutine kissinit
-   
+
+         subroutine fft(ggg,nnmax,nn,ldnn,isgn)
+
+            implicit none
+            integer,parameter      :: r8b= SELECTED_REAL_KIND(P=14,R=99)   ! 8-byte reals
+            integer,parameter      :: i4b= SELECTED_INT_KIND(8)            ! 4-byte integers 
+       
+            integer(i4b)           :: nn, nnmax                     ! length of data set, size of array
+            integer(i4b)           :: ldnn, isgn  
+            real(r8b)              :: ggg(2*nnmax)
+            integer(i4b)           :: i,istep,j,m,mmax,n  
+            real(r8b)              :: tempi,tempr
+            real(r8b)              :: theta,wi,wpi,wpr,wr,wtemp
+      
+            if (nn.ne.2**ldnn) then
+               print *,'nn not a power of 2'
+               stop
+            endif
+       
+            n=2*nn
+            j=1
+            do i=1,n,2
+              if (j.gt.i) then
+                tempr=ggg(j)
+                tempi=ggg(j+1)
+                ggg(j)=ggg(i)
+                ggg(j+1)=ggg(i+1)
+                ggg(i)=tempr
+                ggg(i+1)=tempi
+              endif
+              m=n/2
+              do while ((m.ge.2).and.(j.gt.m)) 
+                j=j-m
+                m=m/2
+              enddo
+              j=j+m
+            enddo
+      
+            mmax=2
+            do while (n.gt.mmax)
+              istep=2*mmax
+              theta=6.28318530717959d0/(isgn*mmax)
+              wpr=-2.d0*sin(0.5d0*theta)**2
+              wpi=sin(theta)
+              wr=1.d0
+              wi=0.d0
+              do  m=1,mmax,2
+                do  i=m,n,istep
+                  j=i+mmax
+                  tempr=wr*ggg(j)-wi*ggg(j+1)
+                  tempi=wr*ggg(j+1)+wi*ggg(j)
+                  ggg(j)=ggg(i)-tempr
+                  ggg(j+1)=ggg(i+1)-tempi
+                  ggg(i)=ggg(i)+tempr
+                  ggg(i+1)=ggg(i+1)+tempi
+                enddo
+                wtemp=wr
+                wr=wr*wpr-wi*wpi+wr
+                wi=wi*wpr+wtemp*wpi+wi
+              enddo
+              mmax=istep
+            enddo
+      
+            return
+                
+            end subroutine fft
+      
+end program mpi_xy8

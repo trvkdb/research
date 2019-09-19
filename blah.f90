@@ -2,7 +2,7 @@ program mpi_xy8
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     !
     !     Monte Carlo simulation of site-diluted (2+1)d XY model
-    !       
+    !       T_c ~ 2
     !     periodic boundary conditions, sequential update of sites
     !     uses KISS05 random number generator
     !     serial + parallel via conditional compilation
@@ -23,7 +23,8 @@ program mpi_xy8
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     
     !#define PARALLEL
-    #define VERSION 'mpi_xy8_rework'
+   
+    #define VERSION 'mpi_xy8'
     
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     ! Data types
@@ -39,19 +40,22 @@ program mpi_xy8
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     
        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    
-
        !integer(i4b),parameter    :: L = 32                                ! L=linear system size - one parameter bc systems are cubic
+       
+       !CHANGE THESE TO CHANGE THE NUMBER OF SYSTEMS THE PROGRAM INTERATES OVER   
+       !Make sure NLT changes with LTARRAY.
+       
+       integer(i4b),parameter    :: NLT = 7                                ! number of L
+       
+       integer(i4b), parameter, dimension(NLT)   :: LTARRAY = (/20, 28, 40, 58, 80, 112, 160/) ! system sizes
+       
     
-       integer(i4b),parameter    :: NLT = 1                                ! number of L
+    
+       !integer(i4b), parameter   :: L = LTARRAY(NLT)
+    
+       !integer(i4b),parameter    :: L3MAX = L*L*L  !L3MAX = 32*32*32 = 32768
        
-       integer(i4b), parameter   :: L = LTARRAY(NLT) = (/32/) ! system sizes
-       
-       !integer(i4b),parameter    :: LTMAX=LTARRAY(NLT)
-
-       integer(i4b),parameter    :: L3MAX = L*L*L  !L3MAX = 32*32*32 = 32768
-       
-       real(r8b),   parameter    :: IMPCONC = 0.300000D0
+       real(r8b),   parameter    :: IMPCONC = 0.000000D0
        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     
        real(r8b),   parameter    :: TMAX = 2.5D0, TMIN = 1.0D0             ! max and min temperatures
@@ -81,8 +85,11 @@ program mpi_xy8
     ! Variable declarations
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     
-       real (r8b)      :: sx(0:L3MAX-1),sy(0:L3MAX-1)             ! XY spin
-       logical(ilog)   :: occu(0:L3MAX-1)                      ! occupation of site with spin
+       !real (r8b)      :: sx(0:L3MAX-1),sy(0:L3MAX-1)             ! XY spin !these will likely need to be made allocatable
+       !logical(ilog)   :: occu(0:L3MAX-1)                      ! occupation of site with spin !same here
+       real(r8b), allocatable, dimension(:) :: sx, sy
+       logical(ilog), allocatable, dimension(:) :: occu
+    
        real (r8b)      :: sxnew, synew, slen
        real (r8b)      :: nsx,nsy, dE                   ! sum over neighboring spins
     
@@ -109,20 +116,30 @@ program mpi_xy8
        real(r8b)       :: confdmdT(NTEMP),conf2dmdT(NTEMP)
        real(r8b)       :: confdlnmdT(NTEMP),conf2dlnmdT(NTEMP)
     
-       integer(i4b)    :: m1(0:L3MAX-1)            ! neighbor table
-       integer(i4b)    :: m2(0:L3MAX-1)
-       integer(i4b)    :: m3(0:L3MAX-1)
-       integer(i4b)    :: m4(0:L3MAX-1)
-       integer(i4b)    :: m5(0:L3MAX-1)
-       integer(i4b)    :: m6(0:L3MAX-1)
-    
-       integer(i4b)    :: Lt, iLT, L3                   ! LT, counter, volume
+       ! integer(i4b)    :: m1(0:L3MAX-1)            ! neighbor table
+       ! integer(i4b)    :: m2(0:L3MAX-1)                         !all these will need to be made allocatable
+       ! integer(i4b)    :: m3(0:L3MAX-1)
+       ! integer(i4b)    :: m4(0:L3MAX-1)
+       ! integer(i4b)    :: m5(0:L3MAX-1)
+       ! integer(i4b)    :: m6(0:L3MAX-1)
+       integer(i4b), allocatable, dimension(:) :: m1
+       integer(i4b), allocatable, dimension(:) :: m2
+       integer(i4b), allocatable, dimension(:) :: m3
+       integer(i4b), allocatable, dimension(:) :: m4
+       integer(i4b), allocatable, dimension(:) :: m5
+       integer(i4b), allocatable, dimension(:) :: m6
+       
+       integer(i4b)    :: L_loop, iLT, L3                   ! LT, counter, volume
     
        real(r8b)       :: qspace,qtime          ! minimum q values for correlation length
-       real(r8b)       :: cosspace(0:L-1)
-       real(r8b)       :: sinspace(0:L-1)
-       real(r8b)       :: costime(0:L3MAX-1)
-       real(r8b)       :: sintime(0:L3MAX-1)
+       ! real(r8b)       :: cosspace(0:L-1)      !also allocatable
+       ! real(r8b)       :: sinspace(0:L-1)
+       ! real(r8b)       :: costime(0:L3MAX-1)
+       ! real(r8b)       :: sintime(0:L3MAX-1)
+       real(r8b), allocatable, dimension(:)       :: cosspace
+       real(r8b), allocatable, dimension(:)       :: sinspace
+       real(r8b), allocatable, dimension(:)       :: costime
+       real(r8b), allocatable, dimension(:)       :: sintime
     
        integer(i4b)    :: iconf,init            ! current disorder config
        integer(i4b)    :: totconf               ! total number of confs run so far
@@ -148,14 +165,14 @@ program mpi_xy8
     
     ! Now the MPI stuff !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     
-    #ifdef PARALLEL
-          include 'mpif.h'
-          integer(i4b)              :: ierr
-          integer(i4b)              :: id,myid                  ! process index
-          integer(i4b)              :: numprocs              ! total number of processes
-          integer(i4b)              :: status(MPI_STATUS_SIZE)
-          real(r8b)                 :: transdata(TDSIZE),auxdata(TDSIZE)     ! MPI transfer array
-    #endif
+   !  #ifdef PARALLEL
+   !        include 'mpif.h'
+   !        integer(i4b)              :: ierr
+   !        integer(i4b)              :: id,myid                  ! process index
+   !        integer(i4b)              :: numprocs              ! total number of processes
+   !        integer(i4b)              :: status(MPI_STATUS_SIZE)
+   !        real(r8b)                 :: transdata(TDSIZE),auxdata(TDSIZE)     ! MPI transfer array
+   !  #endif
     
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     ! Start of main program
@@ -163,38 +180,59 @@ program mpi_xy8
     
     
     ! Set up MPI !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    #ifdef PARALLEL
-          call MPI_INIT(ierr)
-          call MPI_COMM_RANK( MPI_COMM_WORLD, myid, ierr )
-          call MPI_COMM_SIZE( MPI_COMM_WORLD, numprocs, ierr )
+    LT_loop: do iLT = 1, NLT
+          
+          L_loop = LTARRAY(iLT)
+          L3 = L_loop*L_loop*L_loop
     
-          if (myid==0) then
-             print *,'Program ',VERSION,' running on', numprocs, ' processes'
-             print *,'--------------------------------------------------'
-             print *,'L= ', L
-             print *,'MC steps: ', NEQ, ' + ', NMESS
-          endif ! of if (myid==0)
-    #else
+          allocate(sx(0:L3-1))
+          allocate(sy(0:L3-1))
+          allocate(occu(0:L3-1))
+    
+          allocate(m1(0:L3-1))
+          allocate(m2(0:L3-1))
+          allocate(m3(0:L3-1))
+          allocate(m4(0:L3-1))
+          allocate(m5(0:L3-1))
+          allocate(m6(0:L3-1))
+          
+          allocate(cosspace(0:L_loop-1))
+          allocate(sinspace(0:L_loop-1))
+          allocate(costime(0:L3-1))
+          allocate(sintime(0:L3-1))
+          
+    
+   !  #ifdef PARALLEL
+   !        call MPI_INIT(ierr)
+   !        call MPI_COMM_RANK( MPI_COMM_WORLD, myid, ierr )
+   !        call MPI_COMM_SIZE( MPI_COMM_WORLD, numprocs, ierr )
+    
+   !        if (myid==0) then
+   !           print *,'Program ',VERSION,' running on', numprocs, ' processes'
+   !           print *,'--------------------------------------------------'
+   !           print *,'L= ', L_loop
+   !           print *,'MC steps: ', NEQ, ' + ', NMESS
+   !        endif ! of if (myid==0)
+   !  #else
           print *,'Program ',VERSION,' running on single processor'
           print *,'--------------------------------------------------'
-          print *,'L= ', L
+          print *,'L= ', L_loop
           print *,'MC steps: ', NEQ, ' + ', NMESS
-    #endif
+   !  #endif
     
-       qspace=2*pi/L
-       do i1=0, L-1
+       qspace=2*pi/L_loop
+       do i1=0, L_loop-1
           cosspace(i1)=cos(qspace*i1) !i1 = x
           sinspace(i1)=sin(qspace*i1) !i1 = x
        enddo
     
     ! Loop over Lt !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    LT_loop: do iLT=1,NLT !ends around line 700 ish (enddo Lt_loop)
+    !LT_loop: do iLT=1,NLT !ends around line 700 ish (enddo Lt_loop)
     
-          L = LTARRAY(iLT)
-          L3 = L*L*L
+          
     
-       qtime=2*pi/Lt                 ! minimum q values for correlation length
-       do i1=0, Lt-1
+       qtime=2*pi/L_loop                 ! minimum q values for correlation length
+       do i1=0, L_loop-1
           costime(i1)=cos(qtime*i1)
           sintime(i1)=sin(qtime*i1)
        enddo
@@ -203,54 +241,54 @@ program mpi_xy8
           avmafile='avma0000000.dat'
           avcofile='avco0000000.dat'
           avdmfile='avdm0000000.dat'
-          write(avenfile(5:7),'(I3.3)') L
-          write(avmafile(5:7),'(I3.3)') L
-          write(avcofile(5:7),'(I3.3)') L
-          write(avdmfile(5:7),'(I3.3)') L
-          write(avenfile(8:11),'(I4.4)') Lt
-          write(avmafile(8:11),'(I4.4)') Lt
-          write(avcofile(8:11),'(I4.4)') Lt
-          write(avdmfile(8:11),'(I4.4)') Lt
+          write(avenfile(5:7),'(I3.3)') L_loop
+          write(avmafile(5:7),'(I3.3)') L_loop
+          write(avcofile(5:7),'(I3.3)') L_loop
+          write(avdmfile(5:7),'(I3.3)') L_loop
+          write(avenfile(8:11),'(I4.4)') L_loop
+          write(avmafile(8:11),'(I4.4)') L_loop
+          write(avcofile(8:11),'(I4.4)') L_loop
+          write(avdmfile(8:11),'(I4.4)') L_loop
     
     ! Set up neighbor table - don't change 
     
-       do i1=0, Lt-1
-          do i2=0, L-1
-             do i3=0, L-1
-                is = L*(L*i1 + i2) + i3
+       do i1=0, L_loop-1
+          do i2=0, L_loop-1
+             do i3=0, L_loop-1
+                is = L_loop*(L_loop*i1 + i2) + i3
     
-                if (i1.eq.Lt-1) then
-                   m1(is)=is - L*L*(Lt-1)
+                if (i1.eq.L_loop-1) then
+                   m1(is)=is - L_loop*L_loop*(L_loop-1)
                 else
-                   m1(is)=is + L*L
+                   m1(is)=is + L_loop*L_loop
                 endif
     
                 if (i1.eq.0) then
-                   m2(is)=is + L*L*(Lt-1)
+                   m2(is)=is + L_loop*L_loop*(L_loop-1)
                 else
-                   m2(is)=is - L*L
+                   m2(is)=is - L_loop*L_loop
                 endif
     
-                if (i2.eq.L-1) then
-                   m3(is)= is - L*(L-1)
+                if (i2.eq.L_loop-1) then
+                   m3(is)= is - L_loop*(L_loop-1)
                 else
-                   m3(is)= is + L
+                   m3(is)= is + L_loop
                 endif
     
                 if (i2.eq.0) then
-                   m4(is)=is + L*(L-1)
+                   m4(is)=is + L_loop*(L_loop-1)
                 else
-                   m4(is)=is - L
+                   m4(is)=is - L_loop
                 endif
     
-                if (i3.eq.L-1) then
-                   m5(is)= is - (L-1)
+                if (i3.eq.L_loop-1) then
+                   m5(is)= is - (L_loop-1)
                 else
                    m5(is)= is + 1
                 endif
     
                 if (i3.eq.0) then
-                   m6(is)= is + (L-1)
+                   m6(is)= is + (L_loop-1)
                 else
                    m6(is)= is - 1
                 endif
@@ -291,15 +329,15 @@ program mpi_xy8
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     !  Loop over disorder configurations
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    #ifdef PARALLEL
-          disorder_loop: do iconf=myid+1,(NCONF/numprocs)*numprocs,numprocs
-             if (myid==0) print *, 'dis. conf.', iconf
-    #else
+   !  #ifdef PARALLEL
+   !        disorder_loop: do iconf=myid+1,(NCONF/numprocs)*numprocs,numprocs
+   !           if (myid==0) print *, 'dis. conf.', iconf
+   !  #else
           disorder_loop: do iconf=1,NCONF
              print *, 'dis. conf.', iconf
-    #endif
+   !  #endif
     
-          N_IMPSITE=nint(L*L*impconc)
+          N_IMPSITE=nint(L_loop*L_loop*impconc)
     
     ! Initialize random number generator, IRINIT must be positive
           init=irinit+iconf-1
@@ -311,7 +349,7 @@ program mpi_xy8
           iimp=0 !for first loop
           IF (CANON_DIS) THEN
           do while (iimp.lt.N_IMPSITE) !number of impurities < num_total_impurities
-             ispace = int(rkiss05()*L3MAX)
+             ispace = int(rkiss05()*L3)
              if (occu(ispace)) then
                  occu(ispace) = .false.
     !             do itime=0,Lt-1
@@ -322,7 +360,7 @@ program mpi_xy8
              endif
           enddo
           ELSE
-          do ispace=0,L3MAX-1
+          do ispace=0,L3-1
              if (rkiss05()<IMPCONC) then
                 occu(ispace) = .false.
                 ! do itime=0,Lt-1
@@ -465,69 +503,69 @@ program mpi_xy8
           xiscon=sqrt(abs(xiscon))
     
     
-    #ifdef PARALLEL
-    !! Package data for transmission
-          transdata(1)=mag
-          transdata(2)=mag2
-          transdata(3)=mag4
-          transdata(4)=en
-          transdata(5)=en2
-          transdata(6)=susc
-          transdata(7)=bin
-          transdata(8)=sph
-          transdata(9)=Gt
-          transdata(10)=Gs
-          transdata(11)=Gtcon
-          transdata(12)=Gscon
-          transdata(13)=xit
-          transdata(14)=xis
-          transdata(15)=xitcon
-          transdata(16)=xiscon
-          transdata(17)=dmdT
+   !  #ifdef PARALLEL
+   !  !! Package data for transmission
+   !        transdata(1)=mag
+   !        transdata(2)=mag2
+   !        transdata(3)=mag4
+   !        transdata(4)=en
+   !        transdata(5)=en2
+   !        transdata(6)=susc
+   !        transdata(7)=bin
+   !        transdata(8)=sph
+   !        transdata(9)=Gt
+   !        transdata(10)=Gs
+   !        transdata(11)=Gtcon
+   !        transdata(12)=Gscon
+   !        transdata(13)=xit
+   !        transdata(14)=xis
+   !        transdata(15)=xitcon
+   !        transdata(16)=xiscon
+   !        transdata(17)=dmdT
     
     
-          if(myid.ne.0) then                                                  ! Send data
-             call MPI_SEND(transdata,TDSIZE,MPI_DOUBLE_PRECISION,0,myid,MPI_COMM_WORLD,ierr)
-          else                                                                 ! Receive data
-             do id=0,numprocs-1
-                if (id==0) then
-                   auxdata(:)=transdata(:)
-                else
-                   call MPI_RECV(auxdata,TDSIZE,MPI_DOUBLE_PRECISION,id,id,MPI_COMM_WORLD,status,ierr)
-                endif
-                confmag(itemp)=confmag(itemp)       +auxdata(1)
-                conf2mag(itemp)=conf2mag(itemp)     +(auxdata(1))**2
-                confmag2(itemp)=confmag2(itemp)     +auxdata(2)
-                confmag4(itemp)=confmag4(itemp)     +auxdata(3)
-                conflogmag(itemp)=conflogmag(itemp) +log(auxdata(1))
-                confsusc(itemp)=confsusc(itemp)     +auxdata(6)
-                confbin(itemp)=confbin(itemp)       +auxdata(7)
-                conf2susc(itemp)=conf2susc(itemp)   +(auxdata(6))**2
-                conf2bin(itemp)=conf2bin(itemp)     +(auxdata(7))**2
-                confen(itemp)=confen(itemp)         +auxdata(4)
-                confsph(itemp)=confsph(itemp)       +auxdata(8)
-                conf2en(itemp)=conf2en(itemp)       +(auxdata(4))**2
-                conf2sph(itemp)=conf2sph(itemp)     +(auxdata(8))**2
-                confGt(itemp)=confGt(itemp)         +auxdata(9)
-                confGs(itemp)=confGs(itemp)         +auxdata(10)
-                confGtcon(itemp)=confGtcon(itemp)   +auxdata(11)
-                confGscon(itemp)=confGscon(itemp)   +auxdata(12)
-                confxit(itemp)=confxit(itemp)       +auxdata(13)
-                confxis(itemp)=confxis(itemp)       +auxdata(14)
-                conf2xit(itemp)=conf2xit(itemp)     +(auxdata(13))**2
-                conf2xis(itemp)=conf2xis(itemp)     +(auxdata(14))**2
-                confxitcon(itemp)=confxitcon(itemp) +auxdata(15)
-                confxiscon(itemp)=confxiscon(itemp) +auxdata(16)
-                confdmdT(itemp)=confdmdT(itemp)     +auxdata(17)
-                conf2dmdT(itemp)=conf2dmdT(itemp)   +(auxdata(17))**2
-                confdlnmdT(itemp)=confdlnmdT(itemp) +auxdata(17)/auxdata(1)
-                conf2dlnmdT(itemp)=conf2dlnmdT(itemp)+(auxdata(17)/auxdata(1))**2
+   !        if(myid.ne.0) then                                                  ! Send data
+   !           call MPI_SEND(transdata,TDSIZE,MPI_DOUBLE_PRECISION,0,myid,MPI_COMM_WORLD,ierr)
+   !        else                                                                 ! Receive data
+   !           do id=0,numprocs-1
+   !              if (id==0) then
+   !                 auxdata(:)=transdata(:)
+   !              else
+   !                 call MPI_RECV(auxdata,TDSIZE,MPI_DOUBLE_PRECISION,id,id,MPI_COMM_WORLD,status,ierr)
+   !              endif
+   !              confmag(itemp)=confmag(itemp)       +auxdata(1)
+   !              conf2mag(itemp)=conf2mag(itemp)     +(auxdata(1))**2
+   !              confmag2(itemp)=confmag2(itemp)     +auxdata(2)
+   !              confmag4(itemp)=confmag4(itemp)     +auxdata(3)
+   !              conflogmag(itemp)=conflogmag(itemp) +log(auxdata(1))
+   !              confsusc(itemp)=confsusc(itemp)     +auxdata(6)
+   !              confbin(itemp)=confbin(itemp)       +auxdata(7)
+   !              conf2susc(itemp)=conf2susc(itemp)   +(auxdata(6))**2
+   !              conf2bin(itemp)=conf2bin(itemp)     +(auxdata(7))**2
+   !              confen(itemp)=confen(itemp)         +auxdata(4)
+   !              confsph(itemp)=confsph(itemp)       +auxdata(8)
+   !              conf2en(itemp)=conf2en(itemp)       +(auxdata(4))**2
+   !              conf2sph(itemp)=conf2sph(itemp)     +(auxdata(8))**2
+   !              confGt(itemp)=confGt(itemp)         +auxdata(9)
+   !              confGs(itemp)=confGs(itemp)         +auxdata(10)
+   !              confGtcon(itemp)=confGtcon(itemp)   +auxdata(11)
+   !              confGscon(itemp)=confGscon(itemp)   +auxdata(12)
+   !              confxit(itemp)=confxit(itemp)       +auxdata(13)
+   !              confxis(itemp)=confxis(itemp)       +auxdata(14)
+   !              conf2xit(itemp)=conf2xit(itemp)     +(auxdata(13))**2
+   !              conf2xis(itemp)=conf2xis(itemp)     +(auxdata(14))**2
+   !              confxitcon(itemp)=confxitcon(itemp) +auxdata(15)
+   !              confxiscon(itemp)=confxiscon(itemp) +auxdata(16)
+   !              confdmdT(itemp)=confdmdT(itemp)     +auxdata(17)
+   !              conf2dmdT(itemp)=conf2dmdT(itemp)   +(auxdata(17))**2
+   !              confdlnmdT(itemp)=confdlnmdT(itemp) +auxdata(17)/auxdata(1)
+   !              conf2dlnmdT(itemp)=conf2dlnmdT(itemp)+(auxdata(17)/auxdata(1))**2
     
-             enddo
-          endif
+   !           enddo
+   !        endif
     
-    #else
-          confmag(itemp)=confmag(itemp)      +mag
+   !  #else
+           confmag(itemp)=confmag(itemp)      +mag
           conf2mag(itemp)=conf2mag(itemp)    +mag**2
           confmag2(itemp)=confmag2(itemp)    +mag2
           confmag4(itemp)=confmag4(itemp)    +mag4
@@ -555,25 +593,25 @@ program mpi_xy8
           confdlnmdT(itemp)=confdlnmdT(itemp) +dmdT/mag
           conf2dlnmdT(itemp)=conf2dlnmdT(itemp)+(dmdT/mag)**2
     
-    #endif
+   !  #endif
     
           T=T+dT
           enddo temperature
     
     !!! output !!!!!!!!!!!!!!!!!!!!!!!!
     
-    #ifdef PARALLEL
-          totconf=iconf+numprocs-1
-          if (myid==0) then
-    #else
+   !  #ifdef PARALLEL
+   !        totconf=iconf+numprocs-1
+   !        if (myid==0) then
+   !  #else
           totconf=iconf
-    #endif
+   !  #endif
     
     
           open(7,file=avenfile,status='replace')
           rewind(7)
           write(7,*) 'program ', VERSION
-          write(7,*) 'spatial + temporal system size', L, Lt
+          write(7,*) 'spatial + temporal system size', L_loop, L_loop
           write(7,*) 'equilibration steps     ',  NEQ
           write(7,*) 'measurement steps   ', NMESS
           write(7,*) 'impurity conc.  ', real(impconc),',  number of imps. ',N_IMPSITE
@@ -602,7 +640,7 @@ program mpi_xy8
           open(7,file=avmafile,status='replace')
           rewind(7)
           write(7,*) 'program ', VERSION
-          write(7,*) 'spatial + temporal system size', L, Lt
+          write(7,*) 'spatial + temporal system size', L_loop, L_loop
           write(7,*) 'equilibration steps     ',  NEQ
           write(7,*) 'measurement steps   ', NMESS
           write(7,*) 'impurity conc.  ', real(impconc),',  number of imps. ',N_IMPSITE
@@ -633,7 +671,7 @@ program mpi_xy8
           open(7,file=avcofile,status='replace')
           rewind(7)
           write(7,*) 'program ', VERSION
-          write(7,*) 'spatial + temporal system size', L, Lt
+          write(7,*) 'spatial + temporal system size', L_loop, L_loop
           write(7,*) 'equilibration steps     ',  NEQ
           write(7,*) 'measurement steps   ', NMESS
           write(7,*) 'impurity conc.  ', real(impconc),',  number of imps. ',N_IMPSITE
@@ -643,9 +681,9 @@ program mpi_xy8
           write(7,*) 'COLDSTART ',COLDSTART
           write(7,*) 'LFSR-Init        ', IRINIT
           write(7,*) '-----------------'
-          write(7,*) ' T  [xit]  [xis] [xit]/Lt  [xis]/L [xitcon]  [xiscon] [xitcon]/Lt  [xiscon]/L', &
-                    ' glxit glxis  glxit/Lt glxis/L glxitcon glxiscon glxitcon/Lt glxiscon/L',&
-                    ' std.dev.(xit/Lt)  std.dev.(xis/L)'
+          write(7,*) ' T  [xit]  [xis] [xit]/L  [xis]/L [xitcon]  [xiscon] [xitcon]/L  [xiscon]/L', &
+                ' glxit glxis  glxit/Lt glxis/L glxitcon glxiscon glxitcon/L glxiscon/L',&
+                ' std.dev.(xit/Lt)  std.dev.(xis/L)'
           if (COLDSTART==1) then
              T=TMIN
              dT=DT0
@@ -664,18 +702,18 @@ program mpi_xy8
              glxiscon=sqrt(abs(glxiscon))
     
              write(7,'(1x,25(e13.7,1x))') t,confxit(itemp)/totconf, confxis(itemp)/totconf,&
-                  confxit(itemp)/totconf/Lt, confxis(itemp)/totconf/L,&
-                  confxitcon(itemp)/totconf,confxiscon(itemp)/totconf,confxitcon(itemp)/totconf/Lt,confxiscon(itemp)/totconf/L,&
-                  glxit,glxis,glxit/Lt,glxis/L,glxitcon,glxiscon,glxitcon/Lt,glxiscon/L,&
-                  (sqrt(conf2xit(itemp)/totconf-(confxit(itemp)/totconf)**2))/sqrt(1.D0*totconf)/Lt,&
-                  (sqrt(conf2xis(itemp)/totconf-(confxis(itemp)/totconf)**2))/sqrt(1.D0*totconf)/L
+                  confxit(itemp)/totconf/L_loop, confxis(itemp)/totconf/L_loop,&
+                  confxitcon(itemp)/totconf,confxiscon(itemp)/totconf,confxitcon(itemp)/totconf/L_loop,confxiscon(itemp)/&
+                  totconf/L_loop,glxit,glxis,glxit/L_loop,glxis/L_loop,glxitcon,glxiscon,glxitcon/L_loop,glxiscon/L_loop,&
+                  (sqrt(conf2xit(itemp)/totconf-(confxit(itemp)/totconf)**2))/sqrt(1.D0*totconf)/L_loop,&
+                  (sqrt(conf2xis(itemp)/totconf-(confxis(itemp)/totconf)**2))/sqrt(1.D0*totconf)/L_loop
              T=T+DT
           enddo
           close(7)
           open(7,file=avdmfile,status='replace')
           rewind(7)
           write(7,*) 'program ', VERSION
-          write(7,*) 'spatial + temporal system size', L, Lt
+          write(7,*) 'spatial + temporal system size', L_loop, L_loop
           write(7,*) 'equilibration steps     ',  NEQ
           write(7,*) 'measurement steps   ', NMESS
           write(7,*) 'impurity conc.  ', real(impconc),',  number of imps. ',N_IMPSITE
@@ -704,17 +742,31 @@ program mpi_xy8
           enddo
           close(7)
     
-    #ifdef PARALLEL
-          endif ! of if (myid==0)
-    #endif
+   !  #ifdef PARALLEL
+   !        endif ! of if (myid==0)
+   !  #endif
     
           enddo disorder_loop
+          deallocate(sx)
+          deallocate(sy)
+          deallocate(occu)
     
-          enddo LT_loop
+          deallocate(m1)
+          deallocate(m2)
+          deallocate(m3)
+          deallocate(m4)
+          deallocate(m5)
+          deallocate(m6)
     
-    #ifdef PARALLEL
-          call MPI_FINALIZE(ierr)
-    #endif
+          deallocate(cosspace)
+          deallocate(sinspace)
+          deallocate(costime)
+          deallocate(sintime)
+       enddo LT_loop
+    
+   !  #ifdef PARALLEL
+   !        call MPI_FINALIZE(ierr)
+   !  #endif
     
           stop
     
@@ -1015,10 +1067,10 @@ program mpi_xy8
           Immq3x=0
           Immq3y=0
           is=-1
-          do i1=0, Lt-1
-          do i2=0, L-1
-          do i3=0, L-1
-          is = L*(L*i1 + i2) + i3    ! changed v8
+          do i1=0, L_loop-1
+          do i2=0, L_loop-1
+          do i3=0, L_loop-1
+          is = L_loop*(L_loop*i1 + i2) + i3    ! changed v8
              if (occu(is)) then
                 Remqtx=Remqtx+sx(is)*costime(i1)    ! changed v8
                 Remqty=Remqty+sy(is)*costime(i1)
@@ -1052,7 +1104,7 @@ program mpi_xy8
     
           end subroutine corr_func
     
-          
+          end
     
     
     
@@ -1130,7 +1182,7 @@ program mpi_xy8
           c1=ishftc(c1,-3)
     !     print *,c1
           if (c1.ne.536870911) then
-             print *,'Nonstandard integer representation. Stoped.'
+             print *,'Nonstandard integer representation. Stopped.'
              stop
           endif
     
